@@ -1,5 +1,7 @@
 # Launch Calendar Agent — README
 
+Live: https://launch-calendar-self.vercel.app
+
 ## What this is
 Next.js app with a conversational intake/update agent for the Launch Calendar, plus a
 dashboard (Launches table + Portfolio Health). Supabase (Postgres) for storage;
