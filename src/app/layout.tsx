@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Launch Calendar Agent",
+  title: "GC Portfolio Calendar",
   description: "Founding TPM exercise — intake and update agent for the launch calendar",
 };
 

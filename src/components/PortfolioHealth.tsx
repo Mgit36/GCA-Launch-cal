@@ -264,12 +264,12 @@ export function PortfolioHealth({ launches }: { launches: Launch[] }) {
             </option>
           ))}
         </select>
-        <span className="text-xs text-neutral-400">{total} launches match this filter</span>
+        <span className="text-xs text-neutral-400">{total} initiatives match this filter</span>
       </div>
 
       {total === 0 ? (
         <p className="rounded-xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-400">
-          No launches match this filter.
+          No initiatives match this filter.
         </p>
       ) : (
         <>
@@ -342,8 +342,8 @@ export function PortfolioHealth({ launches }: { launches: Launch[] }) {
                   <div className="text-xs font-semibold uppercase tracking-wide text-red-600">Risk Exposure</div>
                   <p className="mt-0.5 text-neutral-600">
                     {atRiskCount === 0
-                      ? 'No launches are currently At Risk or Off Track.'
-                      : `${atRiskCount} launch${atRiskCount === 1 ? '' : 'es'} need attention: ${byTier.offTrack.length} Off Track, ${byTier.atRisk.length} At Risk.`}
+                      ? 'No initiatives are currently At Risk or Off Track.'
+                      : `${atRiskCount} initiative${atRiskCount === 1 ? '' : 's'} need attention: ${byTier.offTrack.length} Off Track, ${byTier.atRisk.length} At Risk.`}
                   </p>
                 </div>
                 <div className="border-l-2 border-amber-400 pl-3">
@@ -352,8 +352,8 @@ export function PortfolioHealth({ launches }: { launches: Launch[] }) {
                   </div>
                   <p className="mt-0.5 text-neutral-600">
                     {blocked.length === 0
-                      ? 'No launches currently have an open dependency.'
-                      : `${blocked.length} launch${blocked.length === 1 ? ' has' : 'es have'} an open dependency: ${blocked
+                      ? 'No initiatives currently have an open dependency.'
+                      : `${blocked.length} initiative${blocked.length === 1 ? ' has' : 's have'} an open dependency: ${blocked
                           .slice(0, 3)
                           .map((l) => l.project)
                           .join(', ')}${blocked.length > 3 ? ', …' : ''}.`}
@@ -365,12 +365,12 @@ export function PortfolioHealth({ launches }: { launches: Launch[] }) {
                   </div>
                   <p className="mt-0.5 text-neutral-600">
                     {cancelled.length === 0
-                      ? 'No cancelled launches in this filter.'
-                      : `${cancelled.length} launch${cancelled.length === 1 ? '' : 'es'} cancelled and excluded from active tracking.`}
+                      ? 'No cancelled initiatives in this filter.'
+                      : `${cancelled.length} initiative${cancelled.length === 1 ? '' : 's'} cancelled and excluded from active tracking.`}
                   </p>
                 </div>
                 <p className="border-t border-neutral-100 pt-2 text-xs text-neutral-400">
-                  Total: {total} launches · {atRiskPct}% at risk or off track
+                  Total: {total} initiatives · {atRiskPct}% at risk or off track
                 </p>
               </div>
             </div>
@@ -403,14 +403,14 @@ export function PortfolioHealth({ launches }: { launches: Launch[] }) {
             <div className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400">Coverage Summary</div>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
               <CoverageRow
-                label="Completed launches"
+                label="Completed initiatives"
                 color="border-emerald-200 bg-emerald-50"
                 items={shipped}
                 expanded={!!expanded.shipped}
                 onToggle={() => toggle('shipped')}
               />
               <CoverageRow
-                label="Active tracked launches"
+                label="Active tracked initiatives"
                 color="border-blue-200 bg-blue-50"
                 items={active}
                 expanded={!!expanded.active}

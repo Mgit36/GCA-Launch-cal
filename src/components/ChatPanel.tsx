@@ -13,7 +13,7 @@ const STORAGE_KEY = 'launch-calendar-chat';
 
 const GREETING: ChatMessage = {
   role: 'agent',
-  text: "Tell me about a launch — a new one, or an update to an existing one. Send it the way you'd naturally tell a person.",
+  text: "Hi, I'm Beacon — how can I help? Tell me about a new launch, or give me an update on one that's already on the calendar.",
 };
 
 function loadStoredMessages(): ChatMessage[] {
@@ -136,7 +136,7 @@ export function ChatPanel({ onClose, onDataChanged }: { onClose: () => void; onD
   return (
     <div className="fixed bottom-24 right-6 z-50 flex h-[32rem] w-96 max-w-[calc(100vw-3rem)] flex-col rounded-2xl border border-neutral-200 bg-[#faf9f7] shadow-2xl">
       <header className="flex items-center justify-between rounded-t-2xl border-b border-neutral-200 bg-white px-4 py-3">
-        <h2 className="font-serif text-sm text-neutral-900">Launch Calendar Agent</h2>
+        <h2 className="font-serif text-sm text-neutral-900">Beacon</h2>
         <div className="flex items-center gap-3">
           <button
             type="button"

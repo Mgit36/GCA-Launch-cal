@@ -362,19 +362,10 @@ export default function Dashboard() {
     <main className="min-h-screen bg-[#faf9f7] px-8 py-8">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="font-serif text-2xl text-neutral-900">Launch Calendar</h1>
+          <h1 className="font-serif text-2xl text-neutral-900">GC Portfolio Calendar</h1>
         </div>
 
         <div className="mb-5 inline-flex rounded-lg border border-neutral-200 bg-white p-1">
-          <button
-            type="button"
-            onClick={() => setTab('launches')}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-              tab === 'launches' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:text-neutral-900'
-            }`}
-          >
-            Launches
-          </button>
           <button
             type="button"
             onClick={() => setTab('health')}
@@ -383,6 +374,15 @@ export default function Dashboard() {
             }`}
           >
             Portfolio Health
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('launches')}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+              tab === 'launches' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:text-neutral-900'
+            }`}
+          >
+            Initiatives
           </button>
         </div>
 
@@ -463,7 +463,7 @@ export default function Dashboard() {
                 </button>
               )}
               <span className="text-xs text-neutral-400">
-                {sorted.length} of {launches.length} launches
+                {sorted.length} of {launches.length} initiatives
               </span>
             </div>
 
@@ -518,7 +518,7 @@ export default function Dashboard() {
                     {sorted.length === 0 && (
                       <tr>
                         <td colSpan={TABLE_COLUMNS.length} className="px-4 py-6 text-center text-neutral-400">
-                          No launches match this filter.
+                          No initiatives match this filter.
                         </td>
                       </tr>
                     )}
