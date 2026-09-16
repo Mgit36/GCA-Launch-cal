@@ -24,6 +24,7 @@ const EDITABLE_FIELDS = [
   'jurisdiction',
   'collaborators',
   'success_metrics',
+  'business_priority',
 ] as const;
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

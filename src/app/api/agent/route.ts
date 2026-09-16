@@ -1,23 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { extractFromMessage } from '@/lib/extract';
+import { extractFromMessage, extractRequiredFieldAnswers } from '@/lib/extract';
 import { matchProject } from '@/lib/matching';
 import { inferBundle, formatConfirmation } from '@/lib/inference';
 import { normalizeLaunchDate, parseRelativeShift, applyRelativeShift } from '@/lib/date';
 import { updateLaunch } from '@/lib/launches';
 import { answerQuery } from '@/lib/query';
 import { generateStatusSummary, generateProjectBrief } from '@/lib/summarize';
-import type { Launch } from '@/lib/types';
+import { TEAMS, BUSINESS_PRIORITIES, SUCCESS_METRICS, type Launch } from '@/lib/types';
 
-// DRI, GA Date, and Requesting Team are required fields (per the exercise's own list
-// of must-have fields, and the schema) - if a message doesn't state them, the agent
-// asks rather than silently defaulting to "Unassigned" / today / "Sales".
+// DRI, GA Date, Requesting Team, Business Priority, and Success Metrics are required
+// fields for a new project - if a message doesn't state them, the agent asks rather
+// than silently defaulting to "Unassigned" / today / "Sales" / a guessed priority or
+// metric. Only applies to project *creation*; an existing project's update is never
+// blocked on these (see missingRequiredFields's only two call sites, both in the
+// create_new path).
 const REQUIRED_FIELD_LABELS = {
   dri: "who's the DRI",
   launch_date: "what's the target GA date",
   requesting_team: 'which team requested this (Legal, Sales, Marketing, Finance, or Support)',
+  business_priority: 'how urgent this is (Critical, High, Medium, or Low)',
+  success_metrics:
+    'which success metric this is meant to drive (Regulatory & Compliance, Productivity, Growth, Activation, or Retention)',
 } as const;
 type RequiredFieldKey = keyof typeof REQUIRED_FIELD_LABELS;
+
+// A newly created project whose launch is more than a month out defaults to Backlog
+// rather than In Progress - "In Progress" (extracted or otherwise) implies active,
+// current work, which doesn't fit something over a month from shipping that's just
+// being entered into the calendar. Parses the date's own YYYY-MM-DD components
+// directly rather than `new Date(dateStr)`, which is UTC-midnight per spec and can
+// silently shift a day (or more) in any timezone behind UTC - the same class of bug
+// fixed in quarter.ts.
+function isMoreThanAMonthOut(launchDateStr: string, now: Date = new Date()): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(launchDateStr);
+  if (!match) return false;
+  const [, y, m, d] = match;
+  const launch = new Date(Number(y), Number(m) - 1, Number(d));
+  const oneMonthOut = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  return launch > oneMonthOut;
+}
 
 function missingRequiredFields(fields: Record<string, string> | undefined | null): RequiredFieldKey[] {
   const f = fields ?? {};
@@ -395,12 +417,33 @@ async function handleConfirmation(proposal: any, confirm: boolean | undefined, c
 
   switch (proposal.kind) {
     case 'trap_a_status_update': {
-      if (!confirm) return NextResponse.json({ type: 'done', agentMessage: 'No change made.' });
       const { data: currentRaw } = await supabase
         .from('launches')
-        .select('project, last_updated')
+        .select('project, dri, last_updated')
         .eq('id', proposal.launchId)
         .single();
+
+      if (!confirm) {
+        // The reporter flagged this as stale but isn't necessarily authoritative on
+        // the project's real status - declining the direct fix shouldn't just drop
+        // the complaint, or the friction that prompted it (getting pinged about
+        // something they believe is done) never actually gets resolved. Route it to
+        // the actual DRI to verify and correct, the same "confirmation goes to the
+        // owner, not the reporter" pattern trap_b_notify_dri already uses.
+        if (currentRaw?.dri) {
+          await supabase.from('unresolved_messages').insert({
+            raw_message: `Stale-status complaint about "${currentRaw.project}" - reporter declined to auto-update Status; flagged for DRI (${currentRaw.dri}) to verify and correct.`,
+            reason: 'Stale-status complaint not confirmed by reporter; routed to DRI for correction',
+            matched_project_id: proposal.launchId,
+          });
+          return NextResponse.json({
+            type: 'done',
+            agentMessage: `No change made — flagged "${currentRaw.project}" for ${currentRaw.dri} to verify and correct the status.`,
+          });
+        }
+        return NextResponse.json({ type: 'done', agentMessage: 'No change made.' });
+      }
+
       const { conflict } = await updateLaunch(
         proposal.launchId,
         { status: 'Shipped' },
@@ -499,6 +542,20 @@ async function handleConfirmation(proposal: any, confirm: boolean | undefined, c
         .select('*')
         .in('id', proposal.candidateIds);
       const candidates = (candidatesRaw ?? []) as Launch[];
+
+      // A bare "yes" (confirm:true, no correctionText - the only way to reach this
+      // branch when confirm isn't false) doesn't say which candidate the user means,
+      // or that it's new - unlike a real reply that genuinely doesn't name any
+      // candidate, there's no content here to read as "must be a new project" intent.
+      // Re-ask rather than silently defaulting to project creation, which would
+      // otherwise walk the user into creating a duplicate of the very project they
+      // just confirmed they meant to update.
+      if (!correctionText) {
+        return confirmationNeeded(
+          `Which one did you mean — ${candidates.map((c) => c.project).join(', ')}? Or say "new" if this isn't any of them.`,
+          proposal
+        );
+      }
 
       // Reply may name the candidate in full ("SharePoint connector"), lead with the
       // first word or two ("sharepoint"), or pick out a single distinctive word from
@@ -609,16 +666,48 @@ async function handleConfirmation(proposal: any, confirm: boolean | undefined, c
         if (correctedDate) fields = { ...fields, launch_date: correctedDate };
 
         // The reply may also be the answer to the missing-required-field question
-        // (DRI / GA date / requesting team) asked alongside the bundle question -
-        // run it through the same extractor used on the original message rather
-        // than hand-rolling name/team parsing.
+        // (DRI / GA date / requesting team) asked alongside the bundle question - use
+        // the narrow, context-free extractor built for this: extractFromMessage first
+        // classifies intent, and a bare fragment answering a specific question (e.g.
+        // "DRI is Casey Wong and Legal", with no project context) can confidently come
+        // back "unclear" from that step, silently dropping fields the user did state.
         if (proposal.missingRequired?.length) {
-          const supplied = await extractFromMessage(correctionText);
+          const supplied = await extractRequiredFieldAnswers(correctionText);
+          // Scoped to exactly the fields still being asked about, not "whatever the
+          // extractor returned a value for" - a field that's already correctly set
+          // from phase 1 (e.g. requesting_team) must never be silently overwritten by
+          // this follow-up reply, which is only meant to answer what's still missing.
+          const missingSet = new Set<string>(proposal.missingRequired);
           const suppliedFields: Record<string, string> = {};
-          if (supplied.fields?.dri) suppliedFields.dri = supplied.fields.dri;
-          if (supplied.fields?.requesting_team) suppliedFields.requesting_team = supplied.fields.requesting_team;
-          if (supplied.fields?.launch_date) {
-            const normalized = normalizeLaunchDate(supplied.fields.launch_date);
+          if (missingSet.has('dri') && supplied.dri) suppliedFields.dri = supplied.dri;
+          // Enum-constrained fields are also validated against their real allowed
+          // values before being accepted - belt-and-suspenders against the extractor
+          // ever emitting a stray non-enum value (a placeholder, a typo, a synonym it
+          // shouldn't have normalized on its own) that would otherwise reach the DB
+          // and fail its CHECK constraint instead of being treated as "not answered".
+          if (
+            missingSet.has('requesting_team') &&
+            supplied.requesting_team &&
+            (TEAMS as readonly string[]).includes(supplied.requesting_team)
+          ) {
+            suppliedFields.requesting_team = supplied.requesting_team;
+          }
+          if (
+            missingSet.has('business_priority') &&
+            supplied.business_priority &&
+            (BUSINESS_PRIORITIES as readonly string[]).includes(supplied.business_priority)
+          ) {
+            suppliedFields.business_priority = supplied.business_priority;
+          }
+          if (
+            missingSet.has('success_metrics') &&
+            supplied.success_metrics &&
+            (SUCCESS_METRICS as readonly string[]).includes(supplied.success_metrics)
+          ) {
+            suppliedFields.success_metrics = supplied.success_metrics;
+          }
+          if (missingSet.has('launch_date') && supplied.launch_date) {
+            const normalized = normalizeLaunchDate(supplied.launch_date);
             if (normalized) suppliedFields.launch_date = normalized;
           }
           fields = { ...fields, ...suppliedFields };
@@ -643,8 +732,21 @@ async function handleConfirmation(proposal: any, confirm: boolean | undefined, c
 
       const dri = fields.dri;
       const rawUpdateNote = fields?.status_summary;
-      const { status_summary: _omit3, scope_update: _omitScope3, ...fieldsIn } = fields ?? {};
+      // scope_update/scope_change are stripped unconditionally on creation, not just
+      // defaulted - Scope Change only means something relative to a project's prior
+      // scope, which a brand-new project doesn't have yet. Extraction is told never to
+      // produce these for a new project (see extract.ts), but this is the deterministic
+      // backstop: even if it misclassifies part of the initial description as a "scope
+      // update" (observed happening in practice), it can never reach the record.
+      const { status_summary: _omit3, scope_update: _omitScope3, scope_change: _omitScope3b, ...fieldsIn } =
+        fields ?? {};
       const notedFields = applyFieldNotes(fieldsIn, undefined, false, { project: proposal.projectName, dri });
+
+      let status = fields?.status ?? 'Backlog';
+      if (status === 'In Progress' && fields.launch_date && isMoreThanAMonthOut(fields.launch_date)) {
+        status = 'Backlog';
+      }
+
       const insertPayload = {
         project: proposal.projectName,
         project_brief: proposal.projectBrief,
@@ -654,12 +756,16 @@ async function handleConfirmation(proposal: any, confirm: boolean | undefined, c
         dri,
         requesting_team: fields.requesting_team,
         launch_date: fields.launch_date,
-        status: fields?.status ?? 'Backlog',
+        status,
         project_stage: fields?.project_stage ?? 'Discovery',
-        scope_change: fields?.scope_change ?? null,
+        scope_change: null,
         dependency: notedFields.dependency ?? null,
-        customer_data_impact: fields?.customer_data_impact ?? 'Not Applicable',
-        jurisdiction: fields?.jurisdiction ?? 'Not Applicable',
+        customer_data_impact: fields?.customer_data_impact ?? 'No',
+        jurisdiction: fields?.jurisdiction ?? 'No',
+        // Both guaranteed present by this point - stillMissing above already blocked
+        // creation until they were answered, same as dri/requesting_team/launch_date.
+        business_priority: fields.business_priority,
+        success_metrics: fields.success_metrics,
       };
       const summaryParagraph = await generateStatusSummary(
         insertPayload as Launch,

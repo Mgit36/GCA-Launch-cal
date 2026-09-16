@@ -20,11 +20,12 @@ create table if not exists launches (
   release_stage text check (release_stage in ('Pilot','Beta','GA')),
   release_size text check (release_size in ('Small','Medium','Large','Extra Large')),
   dependency text,
-  customer_data_impact text default 'Not Applicable' check (customer_data_impact in ('Yes','No','Not Applicable')),
-  jurisdiction text default 'Not Applicable' check (jurisdiction in ('Yes','No','Not Applicable')),
+  customer_data_impact text default 'No' check (customer_data_impact in ('Yes','No')),
+  jurisdiction text default 'No' check (jurisdiction in ('Yes','No')),
   collaborators text[],
   success_metrics text check (success_metrics in
     ('Regulatory & Compliance','Productivity','Growth','Activation','Retention')),
+  business_priority text check (business_priority in ('Critical','High','Medium','Low')),
   change_log text default '', -- append-only, one line per change
   created_date timestamptz not null default now(),
   last_updated timestamptz not null default now(),

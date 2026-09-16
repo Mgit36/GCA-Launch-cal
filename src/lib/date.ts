@@ -102,6 +102,13 @@ const NEXT_QUARTER = /\bnext quarter\b/i;
 // QUARTER_PATTERN below, or "early Q4" would match as bare "Q4" first and lose the
 // qualifier.
 const EARLY_MID_LATE_QUARTER = /\b(early|mid|late)\s+q([1-4])(?:\s+(?:of\s+)?(\d{4}))?\b/i;
+// "mid next year", "early this year", "late next year" - the same early/mid/late
+// convention scaled up a level: splits the year into three ~4-month bands (Jan-Apr /
+// May-Aug / Sep-Dec) and picks a representative mid-band month (Feb/Jul/Nov, day 15)
+// rather than a day-of-month or day-of-quarter, since "year" granularity is coarser
+// than either. "this"/"next" pins the year explicitly, so unlike EARLY_MID_LATE_MONTH
+// there's no "did this already pass" rollover to compute.
+const EARLY_MID_LATE_YEAR = /\b(early|mid|late)\s+(this|next)\s+year\b/i;
 const HALF_END_MONTH = [5, 11]; // last month index of H1, H2 (Jun, Dec)
 const HALF_YEAR_PATTERN = /\bh([12])(?:\s+(?:of\s+)?(\d{4}))?\b/i;
 const WEEKDAY_PATTERN = new RegExp(
@@ -243,6 +250,16 @@ export function normalizeLaunchDate(raw: string, now: Date = new Date()): string
       year += 1;
       candidate = new Date(year, monthIndex, day);
     }
+    return toDateString(adjustToBusinessDay(candidate, 'forward'));
+  }
+
+  const earlyMidLateYearMatch = EARLY_MID_LATE_YEAR.exec(lower);
+  if (earlyMidLateYearMatch) {
+    const qualifier = earlyMidLateYearMatch[1].toLowerCase();
+    const which = earlyMidLateYearMatch[2].toLowerCase();
+    const year = now.getFullYear() + (which === 'next' ? 1 : 0);
+    const monthIndex = qualifier === 'early' ? 1 : qualifier === 'late' ? 10 : 6; // Feb / Jul / Nov
+    const candidate = new Date(year, monthIndex, 15);
     return toDateString(adjustToBusinessDay(candidate, 'forward'));
   }
 

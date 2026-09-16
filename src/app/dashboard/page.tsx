@@ -11,8 +11,9 @@ import {
   SCOPE_CHANGES,
   RELEASE_STAGES,
   RELEASE_SIZES,
-  YES_NO_NA,
+  YES_NO,
   SUCCESS_METRICS,
+  BUSINESS_PRIORITIES,
   type Launch,
   type Status,
   type ProductArea,
@@ -111,7 +112,8 @@ type EditableKey =
   | 'customer_data_impact'
   | 'jurisdiction'
   | 'collaborators'
-  | 'success_metrics';
+  | 'success_metrics'
+  | 'business_priority';
 
 type FieldConfig =
   | { key: EditableKey; label: string; kind: 'text' | 'textarea' | 'date' | 'tags' }
@@ -136,10 +138,11 @@ const EDIT_FIELDS: FieldConfig[] = [
   { key: 'release_stage', label: 'Release Stage', kind: 'select', options: RELEASE_STAGES, nullable: true },
   { key: 'release_size', label: 'Release Size', kind: 'select', options: RELEASE_SIZES, nullable: true },
   { key: 'dependency', label: 'Dependency', kind: 'text' },
-  { key: 'customer_data_impact', label: 'Customer Data Impact', kind: 'select', options: YES_NO_NA },
-  { key: 'jurisdiction', label: 'Jurisdiction', kind: 'select', options: YES_NO_NA },
+  { key: 'customer_data_impact', label: 'Customer Data Impact', kind: 'select', options: YES_NO },
+  { key: 'jurisdiction', label: 'Jurisdiction', kind: 'select', options: YES_NO },
   { key: 'collaborators', label: 'Collaborators', kind: 'tags' },
   { key: 'success_metrics', label: 'Success Metrics', kind: 'select', options: SUCCESS_METRICS, nullable: true },
+  { key: 'business_priority', label: 'Business Priority', kind: 'select', options: BUSINESS_PRIORITIES, nullable: true },
 ];
 
 const inputClass =

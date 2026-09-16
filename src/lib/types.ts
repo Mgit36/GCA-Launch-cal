@@ -35,8 +35,11 @@ export type ReleaseStage = (typeof RELEASE_STAGES)[number];
 export const RELEASE_SIZES = ['Small', 'Medium', 'Large', 'Extra Large'] as const;
 export type ReleaseSize = (typeof RELEASE_SIZES)[number];
 
-export const YES_NO_NA = ['Yes', 'No', 'Not Applicable'] as const;
-export type YesNoNA = (typeof YES_NO_NA)[number];
+export const YES_NO = ['Yes', 'No'] as const;
+export type YesNo = (typeof YES_NO)[number];
+
+export const BUSINESS_PRIORITIES = ['Critical', 'High', 'Medium', 'Low'] as const;
+export type BusinessPriority = (typeof BUSINESS_PRIORITIES)[number];
 
 export const SUCCESS_METRICS = [
   'Regulatory & Compliance',
@@ -64,10 +67,11 @@ export interface Launch {
   release_stage: ReleaseStage | null;
   release_size: ReleaseSize | null;
   dependency: string | null;
-  customer_data_impact: YesNoNA;
-  jurisdiction: YesNoNA;
+  customer_data_impact: YesNo;
+  jurisdiction: YesNo;
   collaborators: string[] | null;
   success_metrics: SuccessMetric | null;
+  business_priority: BusinessPriority | null;
   change_log: string;
   created_date: string;
   last_updated: string;

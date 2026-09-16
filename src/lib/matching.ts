@@ -107,6 +107,22 @@ export function matchProject(
     return { tier: 'high', matches: [best] };
   }
 
+  // A shortened reference ("SharePoint connector") that's a substantial, unique
+  // substring of exactly one eligible project's full name ("SharePoint connector for
+  // document storage") is confidently the same project - people naturally drop
+  // trailing descriptive words when referring to something again, and the
+  // Levenshtein/token-overlap scorer above penalizes that length difference even
+  // though there's no real ambiguity. Only promotes when the containment is unique:
+  // a generic word like "connector" alone will contain-match several projects and
+  // correctly falls through to the candidates tier instead.
+  const normInput = inputName.toLowerCase().trim();
+  if (normInput.length >= 6) {
+    const containmentMatches = eligible.filter((l) => l.project.toLowerCase().includes(normInput));
+    if (containmentMatches.length === 1) {
+      return { tier: 'high', matches: [{ launch: containmentMatches[0], score: 0.85 }] };
+    }
+  }
+
   const terminalNameMatches = existing
     .filter((l) => TERMINAL_STATUSES.has(l.status))
     .map((launch) => ({ launch, score: similarity(launch.project, inputName) }))

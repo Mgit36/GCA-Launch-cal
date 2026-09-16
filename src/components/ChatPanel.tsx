@@ -2,10 +2,17 @@
 
 import { useState, useRef, useEffect } from 'react';
 
+// The agent route's proposal shape varies by `kind` (create_new, update_existing,
+// pick_candidate_or_new, trap_a_status_update, trap_b_notify_dri) - the panel never
+// inspects its fields itself, just holds onto whatever the server sent and echoes it
+// back verbatim on the next confirmation round-trip, so it's typed as an opaque bag
+// rather than a full discriminated union the frontend doesn't otherwise need.
+type Proposal = Record<string, unknown>;
+
 type ChatMessage = {
   role: 'user' | 'agent';
   text: string;
-  proposal?: any;
+  proposal?: Proposal;
   awaitingConfirmation?: boolean;
 };
 
@@ -13,7 +20,7 @@ const STORAGE_KEY = 'launch-calendar-chat';
 
 const GREETING: ChatMessage = {
   role: 'agent',
-  text: "Hi, I'm Beacon — how can I help? Tell me about a new launch, or give me an update on one that's already on the calendar.",
+  text: "Hi, I'm Beacon, your calendar agent — how can I help? Tell me about a new launch, or give me an update on one that's already on the calendar.",
 };
 
 function loadStoredMessages(): ChatMessage[] {
@@ -39,6 +46,13 @@ export function ChatPanel({ onClose, onDataChanged }: { onClose: () => void; onD
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Reading localStorage during render (rather than here) is exactly what would
+    // reintroduce the hydration mismatch the comment above this state explains -
+    // window/localStorage don't exist during SSR, and even a browser-only lazy
+    // useState initializer still runs on the client's first (pre-hydration) render,
+    // which would then diverge from the server-rendered GREETING-only HTML. An
+    // effect is the one place this read is guaranteed to run post-hydration only.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(loadStoredMessages());
     setHydrated(true);
   }, []);
@@ -56,7 +70,7 @@ export function ChatPanel({ onClose, onDataChanged }: { onClose: () => void; onD
     }
   }, [messages, hydrated]);
 
-  async function send(text: string, isConfirmationReply = false, pendingProposal?: any) {
+  async function send(text: string, isConfirmationReply = false, pendingProposal?: Proposal) {
     if (!text.trim()) return;
     setMessages((m) => [...m, { role: 'user', text }]);
     setInput('');
@@ -106,7 +120,7 @@ export function ChatPanel({ onClose, onDataChanged }: { onClose: () => void; onD
     }
   }
 
-  function buildConfirmationBody(replyText: string, proposal: any) {
+  function buildConfirmationBody(replyText: string, proposal?: Proposal) {
     const lower = replyText.trim().toLowerCase();
     const isYes = ['yes', 'y', 'yeah', 'correct', 'confirm'].includes(lower);
     const isBareNo = ['no', 'n', 'nope'].includes(lower);
@@ -134,7 +148,7 @@ export function ChatPanel({ onClose, onDataChanged }: { onClose: () => void; onD
   }
 
   return (
-    <div className="fixed bottom-24 right-6 z-50 flex h-[32rem] w-96 max-w-[calc(100vw-3rem)] flex-col rounded-2xl border border-neutral-200 bg-[#faf9f7] shadow-2xl">
+    <div className="fixed bottom-24 right-6 z-50 flex h-128 w-96 max-w-[calc(100vw-3rem)] flex-col rounded-2xl border border-neutral-200 bg-[#faf9f7] shadow-2xl">
       <header className="flex items-center justify-between rounded-t-2xl border-b border-neutral-200 bg-white px-4 py-3">
         <h2 className="font-serif text-sm text-neutral-900">Beacon</h2>
         <div className="flex items-center gap-3">
