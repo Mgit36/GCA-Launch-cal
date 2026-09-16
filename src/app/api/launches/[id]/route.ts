@@ -43,7 +43,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'No editable fields in request body' }, { status: 400 });
   }
 
-  const { data, error } = await updateLaunch(id, fields, `Edited via dashboard: ${JSON.stringify(fields)}`);
+  // The dashboard sends back the `last_updated` value it read when the side panel
+  // was opened - not an editable field itself, just this request's optimistic-lock
+  // token, so it's read separately rather than folded into EDITABLE_FIELDS.
+  const expectedLastUpdated =
+    typeof body._expectedLastUpdated === 'string' ? body._expectedLastUpdated : undefined;
+
+  const { data, error, conflict } = await updateLaunch(
+    id,
+    fields,
+    `Edited via dashboard: ${JSON.stringify(fields)}`,
+    expectedLastUpdated
+  );
+  if (conflict) {
+    return NextResponse.json(
+      { error: 'This project was changed by someone else since you opened it. Refresh and try again.' },
+      { status: 409 }
+    );
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ launch: data });
 }

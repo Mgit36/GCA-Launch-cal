@@ -328,8 +328,22 @@ export default function Dashboard() {
       const res = await fetch(`/api/launches/${original.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(changed),
+        // `_expectedLastUpdated` is this save's optimistic-lock token, not a field
+        // edit - the server rejects the write (409) if the row has moved on since
+        // `original` was read, instead of silently overwriting whatever changed.
+        body: JSON.stringify({ ...changed, _expectedLastUpdated: original.last_updated }),
       });
+
+      if (res.status === 409) {
+        // Someone else's write landed first - pull the real current state in rather
+        // than leaving the panel showing what's now a stale, rejected draft. Reuses
+        // refetchLaunches' existing merge: fields the user hasn't touched pick up the
+        // incoming values (and get highlighted), fields they were mid-edit on don't.
+        refetchLaunches();
+        setSaveError('This project was changed by someone else while you had it open. Review the updated fields below and save again.');
+        return;
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to save changes');
 

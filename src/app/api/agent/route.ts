@@ -396,7 +396,23 @@ async function handleConfirmation(proposal: any, confirm: boolean | undefined, c
   switch (proposal.kind) {
     case 'trap_a_status_update': {
       if (!confirm) return NextResponse.json({ type: 'done', agentMessage: 'No change made.' });
-      await updateLaunch(proposal.launchId, { status: 'Shipped' }, 'Status -> Shipped (stale-status complaint confirmed)');
+      const { data: currentRaw } = await supabase
+        .from('launches')
+        .select('project, last_updated')
+        .eq('id', proposal.launchId)
+        .single();
+      const { conflict } = await updateLaunch(
+        proposal.launchId,
+        { status: 'Shipped' },
+        'Status -> Shipped (stale-status complaint confirmed)',
+        currentRaw?.last_updated
+      );
+      if (conflict) {
+        return NextResponse.json({
+          type: 'done',
+          agentMessage: `Someone else updated "${currentRaw?.project ?? 'this project'}" just now, so I didn't apply this on top of a stale version - check its current status before retrying.`,
+        });
+      }
       return NextResponse.json({ type: 'done', agentMessage: 'Status updated to Shipped.' });
     }
 
@@ -442,7 +458,23 @@ async function handleConfirmation(proposal: any, confirm: boolean | undefined, c
         [rawUpdateNote, correctionText].filter(Boolean).join(' | ') || undefined
       );
       fields.status_summary = stampSummary(current?.status_summary, summaryParagraph, current?.dri || 'Unassigned');
-      const { error } = await updateLaunch(proposal.launchId, fields, `Updated: ${JSON.stringify(fields)}`);
+      // `current.last_updated` is this handler's own fresh read, right before the
+      // write - passing it as the optimistic-lock token catches exactly the race
+      // this session hit: two concurrent replies (chat + chat, or chat + dashboard)
+      // both reading the same pre-update state and each computing their own fields,
+      // where the second write would otherwise silently clobber the first.
+      const { error, conflict } = await updateLaunch(
+        proposal.launchId,
+        fields,
+        `Updated: ${JSON.stringify(fields)}`,
+        current?.last_updated
+      );
+      if (conflict) {
+        return NextResponse.json({
+          type: 'done',
+          agentMessage: `Someone else updated "${current?.project ?? 'this project'}" just as this was being applied, so I didn't overwrite it with a stale version. Resend your update and I'll reapply it against the latest data.`,
+        });
+      }
       if (error) return NextResponse.json({ type: 'error', agentMessage: error.message }, { status: 500 });
       // A date was asked for but the reply still didn't parse into one - the update
       // still applies (the reply's other content, e.g. a reason, is real and
@@ -522,7 +554,18 @@ async function handleConfirmation(proposal: any, confirm: boolean | undefined, c
           summaryParagraph,
           matchedCandidate.dri || 'Unassigned'
         );
-        const { error } = await updateLaunch(matchedCandidate.id, fields, `Updated: ${JSON.stringify(fields)}`);
+        const { error, conflict } = await updateLaunch(
+          matchedCandidate.id,
+          fields,
+          `Updated: ${JSON.stringify(fields)}`,
+          matchedCandidate.last_updated
+        );
+        if (conflict) {
+          return NextResponse.json({
+            type: 'done',
+            agentMessage: `Someone else updated "${matchedCandidate.project}" just as this was being applied, so I didn't overwrite it with a stale version. Resend your update and I'll reapply it against the latest data.`,
+          });
+        }
         if (error) return NextResponse.json({ type: 'error', agentMessage: error.message }, { status: 500 });
         const dateStillMissing = !!proposal.dateRequested && !fields.launch_date;
         return NextResponse.json({

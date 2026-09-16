@@ -39,6 +39,14 @@ is deterministic TypeScript.
   fields: Status alone conflated "is it in trouble" with "how far along is it," and
   nothing distinguished a killed project from a paused one. These, plus Portfolio Health,
   answer the brief's leadership persona ("what slipped, and when did we find out").
+- **Optimistic locking on every write** — `last_updated` (bumped by a DB trigger on
+  every update) doubles as a version token: the agent, and the dashboard's inline
+  editor, both re-read a row immediately before writing and scope the write to
+  `last_updated = <the value they just read>`. If that value has moved on (someone
+  else wrote to the row in between), the write is rejected rather than silently
+  applied on top of a stale snapshot — surfaced as a clear message in chat, or as a
+  409 in the dashboard that pulls in the real current state (highlighting what
+  changed) instead of leaving the panel showing a now-rejected draft.
 - **No auth** — `Last Update By` is statically set; a real version ties this to SSO.
 
 ## What I'd do next
