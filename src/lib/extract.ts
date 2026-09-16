@@ -35,11 +35,17 @@ Classify intent as one of:
 - "unclear": genuinely can't tell what this is about
 
 For "new_or_update", extract into "fields" whatever of these you can confidently infer from the
-text (omit anything not stated): status, status_summary, dependency, launch_date, release_stage, dri,
-requesting_team, customer_data_impact, jurisdiction, scope_update, scope_change, reason. Use exact
-enum values only: status in [Backlog, In Progress, At Risk, Off Track, Shipped, Cancelled] - use
-Cancelled only when the message explicitly says the launch is being cancelled/killed/scrapped, not
-for a pause (that's At Risk or Off Track); release_stage in [Pilot, Beta, GA]; requesting_team in
+text (omit anything not stated): status, status_summary, dependency, launch_date, release_stage,
+project_stage, dri, requesting_team, customer_data_impact, jurisdiction, scope_update, scope_change,
+reason. Use exact enum values only: status in [Backlog, In Progress, At Risk, Off Track, Shipped,
+Cancelled] - use Cancelled only when the message explicitly says the launch is being
+cancelled/killed/scrapped, not for a pause (that's At Risk or Off Track); release_stage in [Pilot,
+Beta, GA]; project_stage in [Discovery, Design, Implementation, Launch Readiness, Post Launch
+Support, Completed, Cancelled] - Status and Project Stage are independent: Status is "is it in
+trouble" (Backlog/In Progress/At Risk/Off Track/Shipped/Cancelled), Project Stage is "how far along
+is it" (Discovery/Design/.../Completed/Cancelled) - only extract project_stage when the message
+explicitly states or requests it (e.g. "set the stage as Implementation", "we're in Design now"),
+never infer it from status or release_stage; requesting_team in
 [Legal, Sales, Marketing, Finance, Support] - only extract it when the
 message explicitly names which team asked for or owns this launch (e.g. "Legal needs this",
 "Sales wants it for Q3"), not from incidental team mentions; customer_data_impact and jurisdiction
@@ -52,7 +58,11 @@ project (e.g. "DRI as Alex", "assign to Priya"), not from incidental mentions of
 in the message. "reason" is why a status or launch_date is changing, ONLY when the message states
 a status or date change AND explicitly gives a justification for it (e.g. "pushed to Nov 16
 because vendor is delayed" -> reason: "vendor is delayed") - omit it whenever a status/date change
-is stated with no justification, do not guess one. "scope_update" is free text describing what got
+is stated with no justification, do not guess one. This still applies even when the justification
+is the ONLY thing driving a status change and no new launch_date is being set at all (e.g. "dropbox
+connector is delayed due to integration delays" -> status: At Risk, reason: "integration delays" -
+extract reason here exactly as you would if a new date had also been given; never wait for a
+launch_date to be present before extracting reason). "scope_update" is free text describing what got
 ADDED TO or REMOVED FROM what the launch covers (e.g. "we're pulling in conflict handling as well"
 -> scope_update: "now also includes conflict handling") - only for an existing project's scope
 changing, never for a brand-new project's initial description. Whenever you extract "scope_update",
@@ -62,7 +72,13 @@ well"); Trade Off = something was swapped for something else, or a deadline/qual
 made to keep the scope; Descoped = something that was part of the launch got REMOVED or cut. If a message UN-commits a
 previously stated date without giving a new one (e.g. "taking the Sept 1 date off, not committing
 until the vendor confirms") - do NOT extract launch_date at all; instead extract that as
-"dependency" (e.g. "not committing to a date until vendor confirms").
+"dependency" (e.g. "not committing to a date until vendor confirms"). A date describing an
+internal milestone - "implementation/development/code expected to be complete by <date>", "code
+freeze is <date>" - is NOT the launch_date even when it's the only date in the message; route it
+to "dependency" instead (e.g. "implementation due 12/24, which lands during code freeze"). If the
+message explicitly says to update/change the launch date but never actually states what the new
+date should be, do NOT extract launch_date at all and do NOT guess one from an unrelated date
+mentioned elsewhere in the message - leave it unset so the agent asks for it.
 
 For "query", leave "fields" empty ({}) and project_name_guess/project_brief_guess as null - the
 question itself is answered separately, not by this extraction step.

@@ -72,6 +72,16 @@ export function ChatPanel({ onClose, onDataChanged }: { onClose: () => void; onD
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => null);
+        setMessages((m) => [
+          ...m,
+          { role: 'agent', text: `Request failed (${res.status})${errorBody?.error ? `: ${errorBody.error}` : ''}.` },
+        ]);
+        return;
+      }
+
       const data = await res.json();
 
       setMessages((m) => [
@@ -88,7 +98,9 @@ export function ChatPanel({ onClose, onDataChanged }: { onClose: () => void; onD
       // (confirmation_needed/unresolved never do) - refresh the table behind the panel.
       if (data.type === 'done') onDataChanged?.();
     } catch {
-      setMessages((m) => [...m, { role: 'agent', text: 'Something went wrong. Please try again.' }]);
+      // fetch() itself threw - the server isn't reachable at all (down, wrong
+      // port, network blip), distinct from a request that reached it and failed.
+      setMessages((m) => [...m, { role: 'agent', text: "Couldn't reach the server — is it running?" }]);
     } finally {
       setLoading(false);
     }
@@ -108,18 +120,42 @@ export function ChatPanel({ onClose, onDataChanged }: { onClose: () => void; onD
   const lastAgentMsg = [...messages].reverse().find((m) => m.role === 'agent');
   const awaitingConfirmation = lastAgentMsg?.awaitingConfirmation;
 
+  // A stuck/wrong-branch conversation (e.g. an in-flight proposal that got
+  // mismatched) has no way out short of this - a hard refresh reloads the page,
+  // but the conversation is deliberately persisted in localStorage to survive
+  // that, so refreshing alone can't clear it.
+  function clearChat() {
+    setMessages([GREETING]);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Private browsing / storage disabled - nothing to remove.
+    }
+  }
+
   return (
     <div className="fixed bottom-24 right-6 z-50 flex h-[32rem] w-96 max-w-[calc(100vw-3rem)] flex-col rounded-2xl border border-neutral-200 bg-[#faf9f7] shadow-2xl">
       <header className="flex items-center justify-between rounded-t-2xl border-b border-neutral-200 bg-white px-4 py-3">
         <h2 className="font-serif text-sm text-neutral-900">Launch Calendar Agent</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-neutral-400 hover:text-neutral-900"
-          aria-label="Close chat"
-        >
-          ✕
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={clearChat}
+            className="text-xs text-neutral-400 hover:text-neutral-900"
+            aria-label="Clear chat"
+            title="Clear chat"
+          >
+            Clear chat
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-neutral-400 hover:text-neutral-900"
+            aria-label="Close chat"
+          >
+            ✕
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">

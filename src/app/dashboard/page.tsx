@@ -15,7 +15,10 @@ import {
   SUCCESS_METRICS,
   type Launch,
   type Status,
+  type ProductArea,
+  type ScopeChange,
 } from '@/lib/types';
+import { quarterOf, quarterSortKey } from '@/lib/quarter';
 
 const STATUS_COLORS: Record<Status, string> = {
   Backlog: 'bg-neutral-100 text-neutral-600',
@@ -53,6 +56,40 @@ function fmtTimestamp(value: string | null | undefined): string {
 
 function fieldsEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+type SortKey =
+  | 'project'
+  | 'dri'
+  | 'product_area'
+  | 'status'
+  | 'project_stage'
+  | 'release_stage'
+  | 'launch_date'
+  | 'customer_data_impact'
+  | 'success_metrics'
+  | 'legal_review';
+
+type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null;
+
+const TABLE_COLUMNS: { key: SortKey; label: string }[] = [
+  { key: 'project', label: 'Project' },
+  { key: 'dri', label: 'DRI' },
+  { key: 'product_area', label: 'Product Area' },
+  { key: 'status', label: 'Status' },
+  { key: 'project_stage', label: 'Project Stage' },
+  { key: 'release_stage', label: 'Release Stage' },
+  { key: 'launch_date', label: 'Launch Date' },
+  { key: 'customer_data_impact', label: 'Customer Data Impact' },
+  { key: 'success_metrics', label: 'Success Metrics' },
+  { key: 'legal_review', label: 'Legal Review' },
+];
+
+// "Legal Review" isn't a real column - it's derived from two fields - so it needs its
+// own comparable value rather than reading `l[key]` directly like every other column.
+function sortValue(l: Launch, key: SortKey): string | number {
+  if (key === 'legal_review') return l.customer_data_impact === 'Yes' || l.jurisdiction === 'Yes' ? 1 : 0;
+  return (l[key] as string) ?? '';
 }
 
 type EditableKey =
@@ -113,6 +150,12 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [legalOnly, setLegalOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<Status | 'All'>('All');
+  const [quarterFilter, setQuarterFilter] = useState('All');
+  const [productAreaFilter, setProductAreaFilter] = useState<ProductArea | 'All'>('All');
+  const [scopeChangeFilter, setScopeChangeFilter] = useState<ScopeChange | 'All'>('All');
+  const [dependencyOnly, setDependencyOnly] = useState(false);
+  const [slippedOnly, setSlippedOnly] = useState(false);
+  const [sort, setSort] = useState<SortState>(null);
 
   // `original` is the last-saved record behind the open panel; `draft` is the
   // in-progress edit. Comparing the two drives the dirty state and the diff sent
@@ -177,13 +220,61 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  const quarters = useMemo(() => {
+    const set = new Set(launches.map((l) => quarterOf(l.launch_date)));
+    return Array.from(set).sort((a, b) => quarterSortKey(a) - quarterSortKey(b));
+  }, [launches]);
+
   const filtered = useMemo(() => {
     return launches.filter((l) => {
       if (statusFilter !== 'All' && l.status !== statusFilter) return false;
       if (legalOnly && l.customer_data_impact !== 'Yes' && l.jurisdiction !== 'Yes') return false;
+      if (quarterFilter !== 'All' && quarterOf(l.launch_date) !== quarterFilter) return false;
+      if (productAreaFilter !== 'All' && l.product_area !== productAreaFilter) return false;
+      if (scopeChangeFilter !== 'All' && l.scope_change !== scopeChangeFilter) return false;
+      if (dependencyOnly && !l.dependency) return false;
+      if (slippedOnly && !(l.previous_launch_date && l.previous_launch_date !== l.launch_date)) return false;
       return true;
     });
-  }, [launches, statusFilter, legalOnly]);
+  }, [launches, statusFilter, legalOnly, quarterFilter, productAreaFilter, scopeChangeFilter, dependencyOnly, slippedOnly]);
+
+  const sorted = useMemo(() => {
+    if (!sort) return filtered;
+    // Array.prototype.sort is stable (ES2019+), so equal keys keep their relative
+    // order from `filtered` rather than needing a manual tie-break.
+    return [...filtered].sort((a, b) => {
+      const av = sortValue(a, sort.key);
+      const bv = sortValue(b, sort.key);
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+  }, [filtered, sort]);
+
+  function toggleSort(key: SortKey) {
+    setSort((s) => {
+      if (!s || s.key !== key) return { key, dir: 'asc' };
+      return s.dir === 'asc' ? { key, dir: 'desc' } : null;
+    });
+  }
+
+  const hasActiveFilters =
+    statusFilter !== 'All' ||
+    legalOnly ||
+    quarterFilter !== 'All' ||
+    productAreaFilter !== 'All' ||
+    scopeChangeFilter !== 'All' ||
+    dependencyOnly ||
+    slippedOnly;
+
+  function resetFilters() {
+    setStatusFilter('All');
+    setLegalOnly(false);
+    setQuarterFilter('All');
+    setProductAreaFilter('All');
+    setScopeChangeFilter('All');
+    setDependencyOnly(false);
+    setSlippedOnly(false);
+  }
 
   function openPanel(l: Launch) {
     setOriginal(l);
@@ -283,21 +374,83 @@ export default function Dashboard() {
 
         {tab === 'launches' ? (
           <>
-            <div className="mb-4 flex items-center gap-3">
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <select
+                value={quarterFilter}
+                onChange={(e) => setQuarterFilter(e.target.value)}
+                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900"
+              >
+                <option value="All">All quarters</option>
+                {quarters.map((q) => (
+                  <option key={q} value={q}>
+                    {q}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={productAreaFilter}
+                onChange={(e) => setProductAreaFilter(e.target.value as ProductArea | 'All')}
+                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900"
+              >
+                <option value="All">All product areas</option>
+                {PRODUCT_AREAS.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as Status | 'All')}
                 className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900"
               >
-                <option>All</option>
+                <option value="All">All statuses</option>
                 {STATUSES.map((s) => (
-                  <option key={s}>{s}</option>
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
+              <select
+                value={scopeChangeFilter}
+                onChange={(e) => setScopeChangeFilter(e.target.value as ScopeChange | 'All')}
+                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900"
+              >
+                <option value="All">All scope changes</option>
+                {SCOPE_CHANGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-2 text-sm text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={dependencyOnly}
+                  onChange={(e) => setDependencyOnly(e.target.checked)}
+                />
+                Has open dependency
+              </label>
+              <label className="flex items-center gap-2 text-sm text-neutral-700">
+                <input type="checkbox" checked={slippedOnly} onChange={(e) => setSlippedOnly(e.target.checked)} />
+                Date slipped
+              </label>
               <label className="flex items-center gap-2 text-sm text-neutral-700">
                 <input type="checkbox" checked={legalOnly} onChange={(e) => setLegalOnly(e.target.checked)} />
                 Legal review needed only
               </label>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="text-xs text-neutral-400 underline hover:text-neutral-700"
+                >
+                  Reset filters
+                </button>
+              )}
+              <span className="text-xs text-neutral-400">
+                {sorted.length} of {launches.length} launches
+              </span>
             </div>
 
             {loading ? (
@@ -307,23 +460,30 @@ export default function Dashboard() {
                 <table className="w-full text-left text-sm">
                   <thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
                     <tr>
-                      {['Project', 'DRI', 'Product Area', 'Status', 'Stage', 'Launch Date', 'Legal Review'].map(
-                        (h) => (
-                          <th key={h} className="whitespace-nowrap px-4 py-2.5 font-medium">
-                            {h}
-                          </th>
-                        )
-                      )}
+                      {TABLE_COLUMNS.map((c) => (
+                        <th
+                          key={c.key}
+                          onClick={() => toggleSort(c.key)}
+                          className={`cursor-pointer select-none whitespace-nowrap px-4 py-2.5 font-medium hover:text-neutral-700 ${
+                            c.key === 'project' ? 'min-w-60' : ''
+                          }`}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {c.label}
+                            {sort?.key === c.key && <span aria-hidden>{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                          </span>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((l) => (
+                    {sorted.map((l) => (
                       <tr
                         key={l.id}
                         onClick={() => openPanel(l)}
                         className="cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
                       >
-                        <td className="px-4 py-2.5 font-medium text-neutral-900">{l.project}</td>
+                        <td className="min-w-60 px-4 py-2.5 font-medium text-neutral-900">{l.project}</td>
                         <td className="px-4 py-2.5 text-neutral-600">{l.dri}</td>
                         <td className="px-4 py-2.5 text-neutral-600">{l.product_area}</td>
                         <td className="px-4 py-2.5">
@@ -331,16 +491,19 @@ export default function Dashboard() {
                             {l.status}
                           </span>
                         </td>
+                        <td className="px-4 py-2.5 text-neutral-600">{l.project_stage ?? '—'}</td>
                         <td className="px-4 py-2.5 text-neutral-600">{l.release_stage ?? '—'}</td>
                         <td className="px-4 py-2.5 text-neutral-600">{l.launch_date}</td>
+                        <td className="px-4 py-2.5 text-neutral-600">{l.customer_data_impact}</td>
+                        <td className="px-4 py-2.5 text-neutral-600">{l.success_metrics ?? '—'}</td>
                         <td className="px-4 py-2.5 text-neutral-600">
                           {l.customer_data_impact === 'Yes' || l.jurisdiction === 'Yes' ? '⚠️ Yes' : 'No'}
                         </td>
                       </tr>
                     ))}
-                    {filtered.length === 0 && (
+                    {sorted.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-neutral-400">
+                        <td colSpan={TABLE_COLUMNS.length} className="px-4 py-6 text-center text-neutral-400">
                           No launches match this filter.
                         </td>
                       </tr>

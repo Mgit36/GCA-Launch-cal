@@ -2,20 +2,24 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { STATUSES, type Launch, type Status } from '@/lib/types';
+import { quarterOf, quarterSortKey } from '@/lib/quarter';
 
 // Risk tiers map directly onto the real Status values rather than an invented
 // stage-crossed label - Off Track and At Risk are already the two statuses that
-// mean trouble, so there's no need to relabel them into something else.
-type Tier = 'offTrack' | 'atRisk' | 'meetingTargets' | 'unmonitored';
+// mean trouble, so there's no need to relabel them into something else. Backlog gets
+// its own "Planned" tier rather than folding into Meeting Targets - a project that
+// hasn't started yet isn't "meeting targets", it just hasn't been measured against any.
+type Tier = 'offTrack' | 'atRisk' | 'planned' | 'meetingTargets' | 'unmonitored';
 
 function tierOf(l: Launch): Tier {
   if (l.status === 'Cancelled') return 'unmonitored';
   if (l.status === 'Off Track') return 'offTrack';
   if (l.status === 'At Risk') return 'atRisk';
+  if (l.status === 'Backlog') return 'planned';
   return 'meetingTargets';
 }
 
-const TIER_ORDER: Tier[] = ['offTrack', 'atRisk', 'meetingTargets', 'unmonitored'];
+const TIER_ORDER: Tier[] = ['offTrack', 'atRisk', 'planned', 'meetingTargets', 'unmonitored'];
 
 const TIER_META: Record<
   Tier,
@@ -34,6 +38,13 @@ const TIER_META: Record<
     barClass: 'bg-amber-400',
     cardClass: 'bg-amber-50 border-amber-200',
     numberClass: 'text-amber-700',
+  },
+  planned: {
+    label: 'Planned',
+    sub: 'Not yet started',
+    barClass: 'bg-sky-300',
+    cardClass: 'bg-sky-50 border-sky-200',
+    numberClass: 'text-sky-700',
   },
   meetingTargets: {
     label: 'Meeting Targets',
@@ -86,18 +97,6 @@ function HoverProjects({
       </div>
     </div>
   );
-}
-
-function quarterOf(dateStr: string): string {
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return 'Unknown';
-  return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
-}
-
-function quarterSortKey(q: string): number {
-  const m = /^Q(\d) (\d+)$/.exec(q);
-  if (!m) return Infinity;
-  return Number(m[2]) * 4 + Number(m[1]);
 }
 
 const hasLegalReview = (l: Launch) => l.customer_data_impact === 'Yes' || l.jurisdiction === 'Yes';
@@ -201,6 +200,7 @@ export function PortfolioHealth({ launches }: { launches: Launch[] }) {
     const map: Record<Tier, Launch[]> = {
       offTrack: [],
       atRisk: [],
+      planned: [],
       meetingTargets: [],
       unmonitored: [],
     };
@@ -285,7 +285,7 @@ export function PortfolioHealth({ launches }: { launches: Launch[] }) {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
             {TIER_ORDER.map((t, i) => (
               <HoverProjects
                 key={t}
